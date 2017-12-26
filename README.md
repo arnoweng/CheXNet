@@ -1,19 +1,19 @@
-### CheXNet for Classification and Localization of Thoracic Diseases
+# CheXNet for Classification and Localization of Thoracic Diseases
 
 This is a Python3 (Pytorch) reimplementation of [CheXNet](https://stanfordmlgroup.github.io/projects/chexnet/). The model takes a chest X-ray image as input and outputs the probability of each thoracic disease along with a likelihood map of pathologies.
 
 ![](./visualization/00008473_011-3.png)
 
-#### Dataset
+## Dataset
 
 The [ChestX-ray14 dataset](http://openaccess.thecvf.com/content_cvpr_2017/papers/Wang_ChestX-ray8_Hospital-Scale_Chest_CVPR_2017_paper.pdf) comprises 112,120 frontal-view chest X-ray images of 30,805 unique patients with 14 disease labels. To evaluate the model, we randomly split the dataset into training (70%), validation (10%) and test (20%) sets, following the work in paper. Partitioned image names and corresponding labels are placed under the directory [labels](./ChestXray-14/labels).
 
-#### Prerequisites
+## Prerequisites
 
 - Python 3.4+
 - [PyTorch](http://pytorch.org/) and its dependencies
 
-#### Usage
+## Usage
 
 1. Clone this repository.
 
@@ -23,7 +23,7 @@ The [ChestX-ray14 dataset](http://openaccess.thecvf.com/content_cvpr_2017/papers
 
    `python model.py`
 
-#### Comparsion
+## Comparsion
 
 We followed the training strategy described in the official paper, and a ten crop method is adopted both in validation and test. Compared with the original CheXNet, the per-class AUROC of our reproduced model is almost the same. After that, several different deep models are ensembled to get a mean AUROC of 0.847. 
 
@@ -44,6 +44,6 @@ We followed the training strategy described in the official paper, and a ten cro
 | Pleural_Thickening |                  0.708                   |                  0.765                   |                  0.8062                  |   0.7831   |  0.7914  |
 |       Hernia       |                  0.767                   |                  0.914                   |                  0.9164                  |   0.9104   |  0.9206  |
 
-#### Contributions
+## Contributions
 
 The models for ensemble are trained by Xinyu Weng, Nan Zhuang, Jinjin Tian and Yingcheng Liu.
