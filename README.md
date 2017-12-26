@@ -41,7 +41,7 @@ We followed the training strategy described in the official paper, and a ten cro
 |       Edema        |                  0.835                   |                  0.882                   |                  0.8878                  |   0.8932   |  0.8992  |
 |     Emphysema      |                  0.815                   |                  0.829                   |                  0.9371                  |   0.9254   |  0.9343  |
 |      Fibrosis      |                  0.769                   |                  0.767                   |                  0.8047                  |   0.8304   |  0.8385  |
-| Pleural_Thickening |                  0.708                   |                  0.765                   |                  0.8062                  |   0.7831   |  0.7914  |
+| Pleural Thickening |                  0.708                   |                  0.765                   |                  0.8062                  |   0.7831   |  0.7914  |
 |       Hernia       |                  0.767                   |                  0.914                   |                  0.9164                  |   0.9104   |  0.9206  |
 
 ## Contributions
