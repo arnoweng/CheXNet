@@ -46,15 +46,15 @@ def main():
                                      [0.229, 0.224, 0.225])
 
     test_dataset = ChestXrayDataSet(data_dir=DATA_DIR,
-                                 image_list_file=TEST_IMAGE_LIST,
-                                 transform=transforms.Compose([
-                                     transforms.Resize(256),
-                                     transforms.TenCrop(224),
-                                     transforms.Lambda
-                                     (lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
-                                     transforms.Lambda
-                                     (lambda crops: torch.stack([normalize(crop) for crop in crops]))
-                                 ]))
+                                    image_list_file=TEST_IMAGE_LIST,
+                                    transform=transforms.Compose([
+                                        transforms.Resize(256),
+                                        transforms.TenCrop(224),
+                                        transforms.Lambda
+                                        (lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+                                        transforms.Lambda
+                                        (lambda crops: torch.stack([normalize(crop) for crop in crops]))
+                                    ]))
     test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE,
                              shuffle=False, num_workers=8, pin_memory=True)
 
