@@ -46,7 +46,7 @@ We followed the training strategy described in the official paper, and a ten cro
 
 ## Contributions
 
-This work was collaboratively conducted by Xinyu Weng, Nan Zhuang, Jingjing Tian, Yingcheng Liu and Xiao Sun.
+This work was collaboratively conducted by Xinyu Weng, Nan Zhuang, Jingjing Tian and Yingcheng Liu.
 
 ## Our Team
 
