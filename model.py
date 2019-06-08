@@ -21,7 +21,7 @@ CKPT_PATH = 'model.pth.tar'
 N_CLASSES = 14
 CLASS_NAMES = [ 'Atelectasis', 'Cardiomegaly', 'Effusion', 'Infiltration', 'Mass', 'Nodule', 'Pneumonia',
                 'Pneumothorax', 'Consolidation', 'Edema', 'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia']
-DATA_DIR = './ChestX-ray14/images'
+DATA_DIR = '/content/gdrive/'My Drive'/images'
 TEST_IMAGE_LIST = './ChestX-ray14/labels/test_list.txt'
 BATCH_SIZE = 64
 
