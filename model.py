@@ -16,6 +16,8 @@ from torch.utils.data import DataLoader
 from read_data import ChestXrayDataSet
 from sklearn.metrics import roc_auc_score
 
+from modules.densenet import densenet121
+
 
 CKPT_PATH = 'model.pth.tar'
 N_CLASSES = 14
@@ -113,7 +115,8 @@ class DenseNet121(nn.Module):
     """
     def __init__(self, out_size):
         super(DenseNet121, self).__init__()
-        self.densenet121 = torchvision.models.densenet121(pretrained=True)
+        # self.densenet121 = torchvision.models.densenet121(pretrained=True)
+        self.densenet121 = densenet121()
         num_ftrs = self.densenet121.classifier.in_features
         self.densenet121.classifier = nn.Sequential(
             nn.Linear(num_ftrs, out_size),
