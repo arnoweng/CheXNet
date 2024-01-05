@@ -25,7 +25,7 @@ CLASS_NAMES = [ 'Atelectasis', 'Cardiomegaly', 'Effusion', 'Infiltration', 'Mass
                 'Pneumothorax', 'Consolidation', 'Edema', 'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia']
 DATA_DIR = './ChestX-ray14/images'
 TEST_IMAGE_LIST = './ChestX-ray14/labels/test_list.txt'
-BATCH_SIZE = 64
+BATCH_SIZE = 1
 
 def map_state_dict(checkpoint):
     state_dicts = {}
@@ -56,7 +56,7 @@ def map_state_dict(checkpoint):
 
 def main():
 
-    cudnn.benchmark = True
+    # cudnn.benchmark = True
 
     # initialize and load the model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -92,7 +92,7 @@ def main():
                                         (lambda crops: torch.stack([normalize(crop) for crop in crops]))
                                     ]))
     test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE,
-                             shuffle=False, num_workers=8, pin_memory=True)
+                             shuffle=False, num_workers=0, pin_memory=False)
 
     # initialize the ground truth and output tensor
     gt = torch.FloatTensor()
@@ -105,11 +105,13 @@ def main():
     # switch to evaluate mode
     model.eval()
 
-    for i, (inp, target) in enumerate(test_loader):
-        target = target.cuda()
+    for i, batch_data in enumerate(test_loader):
+        inp, target = batch_data
+        if device == 'cuda':
+            target = target.cuda()
         gt = torch.cat((gt, target), 0)
         bs, n_crops, c, h, w = inp.size()
-        input_var = torch.autograd.Variable(inp.view(-1, c, h, w).cuda(), volatile=True)
+        input_var = torch.autograd.Variable(inp.view(-1, c, h, w).cuda() if device == 'cuda' else inp.view(-1, c, h, w))
         output = model(input_var)
         output_mean = output.view(bs, n_crops, -1).mean(1)
         pred = torch.cat((pred, output_mean.data), 0)

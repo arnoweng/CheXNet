@@ -6,13 +6,11 @@ import torchvision.datasets as datasets
 from glob import glob
 import imageio
 import torch.backends.cudnn as cudnn
-from modules.vgg import vgg16, vgg16_bn, vgg19, vgg19_bn
 from modules.resnet import resnet50, resnet101, resnet18
 import matplotlib.cm
 from matplotlib.cm import ScalarMappable
 import matplotlib.pyplot as plt
 import cv2
-from imagenet_index import index2class
 from LRP_util import *
 import os
 import argparse
@@ -20,7 +18,7 @@ import argparse
 # Parse arguments
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--models', type=str, default='resnet50',
+parser.add_argument('--models', type=str, default='densenet121',
                     help='resnet50 or vgg16 or vgg19')
 parser.add_argument('--target_layer', type=str, default='layer2',
                     help='target_layer')
@@ -32,6 +30,8 @@ args = parser.parse_args()
 
 ###########################################################################################################################
 model_arch = args.models
+
+# model = densene
 
 if model_arch == 'vgg16':
     model = vgg16_bn(pretrained=True).cuda().eval()  #####
@@ -60,14 +60,13 @@ def backward_hook(module, input, output):
 target_layer.register_forward_hook(forward_hook)
 target_layer.register_backward_hook(backward_hook)
 
-Score_CAM_class = ScoreCAM(model,target_layer)
-
 path_s = os.listdir('./picture')
 
 for path in path_s:
     img_path_long = './picture/{}'.format(path)
     img = cv2.imread(img_path_long,1)
     img_show = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # TODO: change the size of the image to cheXnet data
     img_show = cv2.resize(img_show,(224,224))
     img = np.float32(cv2.resize(img, (224,224)))/255
 
@@ -106,10 +105,6 @@ for path in path_s:
     grad_campp = grad_campp.data.cpu().numpy()
     grad_campp = cv2.resize(grad_campp, (224, 224))
 
-
-    score_map, _ = Score_CAM_class(in_tensor, class_idx=maxindex)
-    score_map = score_map.squeeze()
-    score_map = score_map.detach().cpu().numpy()
     R_CAM = tensor2image(R_CAM)
 
     fig = plt.figure(figsize=(10, 10))
@@ -147,26 +142,26 @@ for path in path_s:
     plt.axis('off')
 
     plt.subplot(2, 5, 4)
-    plt.imshow((score_map),cmap='seismic')
-    plt.imshow(img_show, alpha=.5)
-    plt.title('Score_CAM', fontsize=15)
-    plt.axis('off')
-
-    plt.subplot(2, 5, 4 + 5)
-    plt.imshow(img_show*threshold(score_map)[...,np.newaxis])
-    plt.title('Score_CAM', fontsize=15)
-    plt.axis('off')
-
-    plt.subplot(2, 5, 5)
     plt.imshow((R_CAM),cmap='seismic')
     plt.imshow(img_show, alpha=.5)
     plt.title('Relevance_CAM', fontsize=15)
     plt.axis('off')
 
-    plt.subplot(2, 5, 5 + 5)
+    plt.subplot(2, 5, 4 + 5)
     plt.imshow(img_show*threshold(R_CAM)[...,np.newaxis])
     plt.title('Relevance_CAM', fontsize=15)
     plt.axis('off')
+
+    # plt.subplot(2, 5, 5)
+    # plt.imshow((score_map),cmap='seismic')
+    # plt.imshow(img_show, alpha=.5)
+    # plt.title('XRelevance_CAM', fontsize=15)
+    # plt.axis('off')
+
+    # plt.subplot(2, 5, 5 + 5)
+    # plt.imshow(img_show*threshold(score_map)[...,np.newaxis])
+    # plt.title('XRelevance_CAM', fontsize=15)
+    # plt.axis('off')
 
     plt.tight_layout()
     plt.draw()

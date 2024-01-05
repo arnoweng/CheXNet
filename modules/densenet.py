@@ -35,8 +35,6 @@ class _DenseLayer(nn.Module):
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
 
-    # torchscript does not yet support *args, so we overload method
-    # allowing it to take either a List[Tensor] or single Tensor
     def forward(self, input: Tensor) -> Tensor:  # noqa: F811
         if isinstance(input, Tensor):
             prev_features = [input]
@@ -88,8 +86,9 @@ class _DenseBlock(nn.ModuleDict):
     def forward(self, init_features: Tensor) -> Tensor:
         features = [init_features]
         for name, layer in self.items():
-            new_features = layer(features)
-            features.append(new_features) # here is the concatenation of all previous features within the block
+            if 'denselayer' in name:
+                new_features = layer(features)
+                features.append(new_features) # here is the concatenation of all previous features within the block
 
         # if you look at the diagram of a DenseNet block, it has one final concatenation of all previous layers
         return self.cat(features, 1)
@@ -206,6 +205,7 @@ class DenseNet(nn.Module):
         # Final batch norm
         # self.norm5 = BatchNorm2d(num_features)
         self.features.add_module("norm5", BatchNorm2d(num_features))
+        self.relu5 = ReLU(inplace=True)
 
         # Linear layer
         self.avgpool = AdaptiveAvgPool2d((1, 1))
@@ -251,9 +251,9 @@ class DenseNet(nn.Module):
     def forward(self, x: Tensor, mode='output', target_class = [None], xMode=False):
         
         # initial feature extraction
-        x = self.feature.conv0(x)
-        x = self.feature.norm0(x)
-        x = self.feature.relu0(x)
+        x = self.features.conv0(x)
+        x = self.features.norm0(x)
+        x = self.features.relu0(x)
         x = self.relu0(x)
         features = self.maxpool0(x)
 
@@ -271,7 +271,7 @@ class DenseNet(nn.Module):
         
         # activate and downsample
         layer4Norm = self.features.norm5(denseblock4)
-        out = ReLU(layer4Norm, inplace=True)
+        out = self.relu5(layer4Norm)
         out = self.avgpool(out)
         out = torch.flatten(out, 1)
         z = self.classifier(out)
