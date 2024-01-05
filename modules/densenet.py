@@ -249,18 +249,25 @@ class DenseNet(nn.Module):
         return R
 
     def forward(self, x: Tensor, mode='output', target_class = [None], xMode=False):
-
+        
+        # initial feature extraction
         x = self.feature.conv0(x)
         x = self.feature.norm0(x)
         x = self.feature.relu0(x)
         x = self.relu0(x)
         features = self.maxpool0(x)
 
-        # TODO: add transition module here
+        # dense block feature extraction
         denseblock1 = self.features.denseblock1(features)
-        denseblock2 = self.features.denseblock2(denseblock1)
-        denseblock3 = self.features.denseblock3(denseblock2)
-        denseblock4 = self.features.denseblock4(denseblock3)
+        denseblock1_trans = self.features.transition1(denseblock1)
+        
+        denseblock2 = self.features.denseblock2(denseblock1_trans)
+        denseblock2_trans = self.features.transition2(denseblock2)
+
+        denseblock3 = self.features.denseblock3(denseblock2_trans)
+        denseblock3_trans = self.features.transition3(denseblock3)
+
+        denseblock4 = self.features.denseblock4(denseblock3_trans)
         
         # activate and downsample
         layer4Norm = self.features.norm5(denseblock4)
@@ -270,7 +277,6 @@ class DenseNet(nn.Module):
         z = self.classifier(out)
 
         if mode == 'output':
-            # specific to the cheXnet model
             return z
     
         # propagation
@@ -288,22 +294,28 @@ class DenseNet(nn.Module):
             r_cam4 = torch.sum(r_cam4, dim=(1), keepdim=True)
             return r_cam4, z
         elif mode == 'denseblock3':
-            R3 = self.denseblock4.relprop(R4, 1)
+            R = self.features.denseblock4.relprop(R4, 1)
+            R3 = self.features.transition3.relprop(R, 1)
             r_weight3 = self._compute_weights(R3, denseblock3, xMode)
             r_cam3 = denseblock3 * r_weight3
             r_cam3 = torch.sum(r_cam3, dim=(1), keepdim=True)
             return r_cam3, z
         elif mode == 'denseblock2':
-            R3 = self.denseblock4.relprop(R4, 1)
-            R2 = self.denseblock3.relprop(R3, 1)
+            R = self.denseblock4.relprop(R4, 1)
+            R = self.features.transition3.relprop(R, 1)
+            R = self.denseblock3.relprop(R, 1)
+            R2 = self.features.transition2.relprop(R, 1)
             r_weight2 = self._compute_weights(R2, denseblock2, xMode)
             r_cam2 = denseblock2 * r_weight2
             r_cam2 = torch.sum(r_cam2, dim=(1), keepdim=True)
             return r_cam2, z
         elif mode == 'denseblock1':
-            R3 = self.denseblock4.relprop(R4, 1)
-            R2 = self.denseblock3.relprop(R3, 1)
-            R1 = self.denseblock2.relprop(R2, 1)
+            R = self.denseblock4.relprop(R4, 1)
+            R = self.features.transition3.relprop(R, 1)
+            R = self.denseblock3.relprop(R, 1)
+            R = self.features.transition2.relprop(R, 1)
+            R = self.denseblock2.relprop(R, 1)
+            R1 = self.features.transition1.relprop(R, 1)
             r_weight1 = self._compute_weights(R1, denseblock1, xMode)
             r_cam1 = denseblock1 * r_weight1
             r_cam1 = torch.sum(r_cam1, dim=(1), keepdim=True)
