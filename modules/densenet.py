@@ -21,6 +21,9 @@ class _DenseLayer(nn.Module):
         self, num_input_features: int, growth_rate: int, bn_size: int, drop_rate: float, memory_efficient: bool = False
     ) -> None:
         super().__init__()
+    
+        self.cat = Cat()
+
         self.norm1 = BatchNorm2d(num_input_features)
         self.relu1 = ReLU(inplace=True)
         self.conv1 = Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)
@@ -29,16 +32,6 @@ class _DenseLayer(nn.Module):
         self.relu2 = ReLU(inplace=True)
         self.conv2 = Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
 
-        # self.features = Sequential(
-        #     OrderedDict(
-        #         [
-        #             ("conv0", Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
-        #             ("norm0", BatchNorm2d(num_init_features)),
-        #             ("relu0", ReLU(inplace=True)),
-        #             ("pool0", MaxPool2d(kernel_size=3, stride=2, padding=1)),
-        #         ]
-        #     )
-        # )
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
 
@@ -50,23 +43,21 @@ class _DenseLayer(nn.Module):
         else:
             prev_features = input
 
-        # if self.memory_efficient and self.any_requires_grad(prev_features):
-        #     if torch.jit.is_scripting():
-        #         raise Exception("Memory Efficient not supported in JIT")
-
-        #     bottleneck_output = self.call_checkpoint_bottleneck(prev_features)
-        # else:
-        # bottleneck_output = self.bn_function(prev_features)
-
-        concated_features = Cat(prev_features, 1)
+        concated_features = self.cat(prev_features, 1)
         bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))  # noqa: T484
         new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
-        if self.drop_rate > 0:
-            new_features = Dropout(new_features, p=self.drop_rate, training=self.training)
+        # if self.drop_rate > 0:
+        #     new_features = Dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features
 
     def relprop(self, R, alpha):
-        pass
+        R = self.conv2.relprop(R, alpha)
+        R = self.relu2.relprop(R, alpha)
+        R = self.norm2.relprop(R, alpha)
+        R = self.conv1.relprop(R, alpha)
+        R = self.relu1.relprop(R, alpha)
+        R = self.norm1.relprop(R, alpha)
+        return self.cat.relprop(R, alpha) # a list of tensors
 
 class _DenseBlock(nn.ModuleDict):
     _version = 2
@@ -92,18 +83,29 @@ class _DenseBlock(nn.ModuleDict):
             self.add_module("denselayer%d" % (i + 1), layer)
         
         self.cat = Cat()
+        self.num_layers = num_layers
 
     def forward(self, init_features: Tensor) -> Tensor:
         features = [init_features]
         for name, layer in self.items():
             new_features = layer(features)
-            features.append(new_features)
+            features.append(new_features) # here is the concatenation of all previous features within the block
+
+        # if you look at the diagram of a DenseNet block, it has one final concatenation of all previous layers
         return self.cat(features, 1)
     
     def relprop(self, R, alpha = 1):
         R = self.cat.relprop(R, alpha)
+        R_return = []
 
-
+        # do it in reverse order
+        # decompose the relevance value and for the gradient of the same color, add them up for fusion
+            # do it yourself first then distribute the rest to its corresponding slots
+        # at the end, add up the tensor gradients at each slot
+        # for r, i in zip(R, range(self.num_layers)):
+        #     R_return.append(self.modules["denselayer%d" % (i + 1)].relprop(r, alpha))
+        
+        return R_return
 
 class _Transition(Sequential):
     def __init__(self, num_input_features: int, num_output_features: int) -> None:
@@ -166,21 +168,6 @@ class DenseNet(nn.Module):
 
         # Each denseblock
         num_features = num_init_features
-        # for i, num_layers in enumerate(block_config):
-        #     block = _DenseBlock(
-        #         num_layers=num_layers,
-        #         num_input_features=num_features,
-        #         bn_size=bn_size,
-        #         growth_rate=growth_rate,
-        #         drop_rate=drop_rate,
-        #         memory_efficient=memory_efficient,
-        #     )
-        #     self.features.add_module("denseblock%d" % (i + 1), block)
-        #     num_features = num_features + num_layers * growth_rate
-        #     if i != len(block_config) - 1:
-        #         trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
-        #         self.features.add_module("transition%d" % (i + 1), trans)
-        #         num_features = num_features // 2
 
         # break down the above loop into individual layer
         denseblock1, num_features = self._make_layer(num_features, self.block_config[0], 0)
@@ -248,11 +235,7 @@ class DenseNet(nn.Module):
         return R
 
     def forward(self, x: Tensor, mode='output', target_class = [None], xMode=False):
-                    # ("conv0", Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
-                    # ("norm0", BatchNorm2d(num_init_features)),
-                    # ("relu0", ReLU(inplace=True)),
-                    # ("pool0", MaxPool2d(kernel_size=3, stride=2, padding=1)),
-        
+
         x = self.feature.conv0(x)
         x = self.feature.norm0(x)
         x = self.feature.relu0(x)
