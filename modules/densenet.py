@@ -96,16 +96,29 @@ class _DenseBlock(nn.ModuleDict):
     
     def relprop(self, R, alpha = 1):
         R = self.cat.relprop(R, alpha)
-        R_return = []
 
         # do it in reverse order
         # decompose the relevance value and for the gradient of the same color, add them up for fusion
             # do it yourself first then distribute the rest to its corresponding slots
         # at the end, add up the tensor gradients at each slot
-        # for r, i in zip(R, range(self.num_layers)):
-        #     R_return.append(self.modules["denselayer%d" % (i + 1)].relprop(r, alpha))
-        
-        return R_return
+
+        modules_reversed = reversed(self.items())
+        # a list of list, index represents the layer index and the value in the index is a list of accumulating relevance tensors from previous connections
+        module_Rs = []
+
+        for i, module in enumerate(modules_reversed):
+
+            # accumulate the relevance values for each layer
+            for layer_index, rel in enumerate(R):
+                if layer_index not in module_Rs:
+                    module_Rs[layer_index] = []
+                module_Rs[layer_index].append(rel)
+            
+            # update the R list for the next iteration
+            layer = module[-1]
+            R = layer.relprop(sum(module_Rs[-(i+1)]), alpha) # self.modules["denselayer%d" % (i + 1)].relprop(r, alpha)
+
+        return R
 
 class _Transition(Sequential):
     def __init__(self, num_input_features: int, num_output_features: int) -> None:
@@ -244,9 +257,7 @@ class DenseNet(nn.Module):
 
         # TODO: add transition module here
         denseblock1 = self.features.denseblock1(features)
-        
         denseblock2 = self.features.denseblock2(denseblock1)
-
         denseblock3 = self.features.denseblock3(denseblock2)
         denseblock4 = self.features.denseblock4(denseblock3)
         
