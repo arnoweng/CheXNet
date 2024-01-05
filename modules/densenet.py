@@ -8,7 +8,7 @@ import torch.utils.checkpoint as cp
 from torch import Tensor
 import numpy as np
 
-from modules.layers import AdaptiveAvgPool2d, AvgPool2d, BatchNorm2d, Conv2d, Dropout, Linear, MaxPool2d, ReLU, Sequential
+from modules.layers import AdaptiveAvgPool2d, AvgPool2d, BatchNorm2d, Cat, Conv2d, Dropout, Linear, MaxPool2d, ReLU, Sequential
 
 __all__ = [
     "DenseNet",
@@ -29,27 +29,18 @@ class _DenseLayer(nn.Module):
         self.relu2 = ReLU(inplace=True)
         self.conv2 = Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)
 
+        # self.features = Sequential(
+        #     OrderedDict(
+        #         [
+        #             ("conv0", Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+        #             ("norm0", BatchNorm2d(num_init_features)),
+        #             ("relu0", ReLU(inplace=True)),
+        #             ("pool0", MaxPool2d(kernel_size=3, stride=2, padding=1)),
+        #         ]
+        #     )
+        # )
         self.drop_rate = float(drop_rate)
         self.memory_efficient = memory_efficient
-
-    def bn_function(self, inputs: List[Tensor]) -> Tensor:
-        concated_features = torch.cat(inputs, 1)
-        bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))  # noqa: T484
-        return bottleneck_output
-
-    # todo: rewrite when torchscript supports any
-    def any_requires_grad(self, input: List[Tensor]) -> bool:
-        for tensor in input:
-            if tensor.requires_grad:
-                return True
-        return False
-
-    @torch.jit.unused  # noqa: T484
-    def call_checkpoint_bottleneck(self, input: List[Tensor]) -> Tensor:
-        def closure(*inputs):
-            return self.bn_function(inputs)
-
-        return cp.checkpoint(closure, *input)
 
     # torchscript does not yet support *args, so we overload method
     # allowing it to take either a List[Tensor] or single Tensor
@@ -59,19 +50,23 @@ class _DenseLayer(nn.Module):
         else:
             prev_features = input
 
-        if self.memory_efficient and self.any_requires_grad(prev_features):
-            if torch.jit.is_scripting():
-                raise Exception("Memory Efficient not supported in JIT")
+        # if self.memory_efficient and self.any_requires_grad(prev_features):
+        #     if torch.jit.is_scripting():
+        #         raise Exception("Memory Efficient not supported in JIT")
 
-            bottleneck_output = self.call_checkpoint_bottleneck(prev_features)
-        else:
-            bottleneck_output = self.bn_function(prev_features)
+        #     bottleneck_output = self.call_checkpoint_bottleneck(prev_features)
+        # else:
+        # bottleneck_output = self.bn_function(prev_features)
 
+        concated_features = Cat(prev_features, 1)
+        bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))  # noqa: T484
         new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
         if self.drop_rate > 0:
             new_features = Dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features
 
+    def relprop(self, R, alpha):
+        pass
 
 class _DenseBlock(nn.ModuleDict):
     _version = 2
@@ -95,16 +90,22 @@ class _DenseBlock(nn.ModuleDict):
                 memory_efficient=memory_efficient,
             )
             self.add_module("denselayer%d" % (i + 1), layer)
+        
+        self.cat = Cat()
 
     def forward(self, init_features: Tensor) -> Tensor:
         features = [init_features]
         for name, layer in self.items():
             new_features = layer(features)
             features.append(new_features)
-        return torch.cat(features, 1)
+        return self.cat(features, 1)
+    
+    def relprop(self, R, alpha = 1):
+        R = self.cat.relprop(R, alpha)
 
 
-class _Transition(nn.Sequential):
+
+class _Transition(Sequential):
     def __init__(self, num_input_features: int, num_output_features: int) -> None:
         super().__init__()
         self.norm = BatchNorm2d(num_input_features)
@@ -150,7 +151,7 @@ class DenseNet(nn.Module):
         self.memory_efficient = memory_efficient
 
         # initial convolution before dense block convolution
-        self.initialConvolution = Sequential(
+        self.features = Sequential(
             OrderedDict(
                 [
                     ("conv0", Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
@@ -160,6 +161,8 @@ class DenseNet(nn.Module):
                 ]
             )
         )
+        self.relu0 = ReLU(inplace=True)
+        self.maxpool0 = MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         # Each denseblock
         num_features = num_init_features
@@ -180,14 +183,28 @@ class DenseNet(nn.Module):
         #         num_features = num_features // 2
 
         # break down the above loop into individual layer
-        self.layer1, num_features = self._make_layer(num_features, self.block_config[0], 0)
-        self.layer2, num_features = self._make_layer(num_features, self.block_config[1], 1)
-        self.layer3, num_features = self._make_layer(num_features, self.block_config[2], 2)
-        self.layer4, num_features = self._make_layer(num_features, self.block_config[3], 3)
+        denseblock1, num_features = self._make_layer(num_features, self.block_config[0], 0)
+        transition1, num_features = self._make_transition(num_features, self.block_config[0], 0)
+        self.features.add_module('denseblock1', denseblock1)
+        self.features.add_module("transition1", transition1)
+
+        denseblock2, num_features = self._make_layer(num_features, self.block_config[1], 1)
+        transition2, num_features = self._make_transition(num_features, self.block_config[1], 1)
+        self.features.add_module('denseblock2', denseblock2)
+        self.features.add_module("transition2", transition2)
+
+        denseblock3, num_features = self._make_layer(num_features, self.block_config[2], 2)
+        transition3, num_features = self._make_transition(num_features, self.block_config[2], 2)
+        self.features.add_module('denseblock3', denseblock3)
+        self.features.add_module("transition3", transition3)
+
+        denseblock4, num_features = self._make_layer(num_features, self.block_config[3], 3)
+        self.features.add_module('denseblock4', denseblock4)
+
 
         # Final batch norm
-        self.finalBN = BatchNorm2d(num_features)
-        # self.features.add_module("norm5", BatchNorm2d(num_features))
+        # self.norm5 = BatchNorm2d(num_features)
+        self.features.add_module("norm5", BatchNorm2d(num_features))
 
         # Linear layer
         self.avgpool = AdaptiveAvgPool2d((1, 1))
@@ -204,7 +221,6 @@ class DenseNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def _make_layer(self, num_features, num_layers, i):
-        layers = []
         block = _DenseBlock(
             num_layers=num_layers,
             num_input_features=num_features,
@@ -214,16 +230,13 @@ class DenseNet(nn.Module):
             memory_efficient=self.memory_efficient,
         )
         # self.features.add_module("denseblock%d" % (i + 1), block)
-        layers.append(block)
-
         num_features = num_features + num_layers * self.growth_rate
-        if i != len(self.block_config) - 1:
-            trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
-            # self.features.add_module("transition%d" % (i + 1), trans)
-            layers.append(trans)
-            num_features = num_features // 2
+        return block, num_features
 
-        return Sequential(*layers), num_features
+    def _make_transition(self, num_features, num_layers, i):
+        trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
+        num_features = num_features // 2
+        return trans, num_features
 
     def CLRP(self, x, maxindex = [None]):
         if maxindex == [None]:
@@ -235,16 +248,27 @@ class DenseNet(nn.Module):
         return R
 
     def forward(self, x: Tensor, mode='output', target_class = [None], xMode=False):
+                    # ("conv0", Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+                    # ("norm0", BatchNorm2d(num_init_features)),
+                    # ("relu0", ReLU(inplace=True)),
+                    # ("pool0", MaxPool2d(kernel_size=3, stride=2, padding=1)),
+        
+        x = self.feature.conv0(x)
+        x = self.feature.norm0(x)
+        x = self.feature.relu0(x)
+        x = self.relu0(x)
+        features = self.maxpool0(x)
 
-        features = self.initialConvolution(x)
+        # TODO: add transition module here
+        denseblock1 = self.features.denseblock1(features)
+        
+        denseblock2 = self.features.denseblock2(denseblock1)
 
-        layer1 = self.layer1(features)
-        layer2 = self.layer2(layer1)
-        layer3 = self.layer3(layer2)
-        layer4 = self.layer4(layer3)
+        denseblock3 = self.features.denseblock3(denseblock2)
+        denseblock4 = self.features.denseblock4(denseblock3)
         
         # activate and downsample
-        layer4Norm = self.finalBN(layer4)
+        layer4Norm = self.features.norm5(denseblock4)
         out = ReLU(layer4Norm, inplace=True)
         out = self.avgpool(out)
         out = torch.flatten(out, 1)
@@ -261,32 +285,32 @@ class DenseNet(nn.Module):
         R = R.reshape_as(self.avgpool.Y)
         R = self.avgpool.relprop(R, 1)
         R = ReLU.relprop(R)
-        R4 = self.finalBN.relprop(R, 1)
+        R4 = self.features.norm5.relprop(R, 1)
 
-        if mode == 'layer4':
-            r_weight4 = self._compute_weights(R, layer4, xMode)
-            r_cam4 = layer4 * r_weight4
+        if mode == 'denseblock4':
+            r_weight4 = self._compute_weights(R, denseblock4, xMode)
+            r_cam4 = denseblock4 * r_weight4
             r_cam4 = torch.sum(r_cam4, dim=(1), keepdim=True)
             return r_cam4, z
-        elif mode == 'layer3':
-            R3 = self.layer4.relprop(R4, 1)
-            r_weight3 = self._compute_weights(R3, layer3, xMode)
-            r_cam3 = layer3 * r_weight3
+        elif mode == 'denseblock3':
+            R3 = self.denseblock4.relprop(R4, 1)
+            r_weight3 = self._compute_weights(R3, denseblock3, xMode)
+            r_cam3 = denseblock3 * r_weight3
             r_cam3 = torch.sum(r_cam3, dim=(1), keepdim=True)
             return r_cam3, z
-        elif mode == 'layer2':
-            R3 = self.layer4.relprop(R4, 1)
-            R2 = self.layer3.relprop(R3, 1)
-            r_weight2 = self._compute_weights(R2, layer2, xMode)
-            r_cam2 = layer2 * r_weight2
+        elif mode == 'denseblock2':
+            R3 = self.denseblock4.relprop(R4, 1)
+            R2 = self.denseblock3.relprop(R3, 1)
+            r_weight2 = self._compute_weights(R2, denseblock2, xMode)
+            r_cam2 = denseblock2 * r_weight2
             r_cam2 = torch.sum(r_cam2, dim=(1), keepdim=True)
             return r_cam2, z
-        elif mode == 'layer1':
-            R3 = self.layer4.relprop(R4, 1)
-            R2 = self.layer3.relprop(R3, 1)
-            R1 = self.layer2.relprop(R2, 1)
-            r_weight1 = self._compute_weights(R1, layer1, xMode)
-            r_cam1 = layer1 * r_weight1
+        elif mode == 'denseblock1':
+            R3 = self.denseblock4.relprop(R4, 1)
+            R2 = self.denseblock3.relprop(R3, 1)
+            R1 = self.denseblock2.relprop(R2, 1)
+            r_weight1 = self._compute_weights(R1, denseblock1, xMode)
+            r_cam1 = denseblock1 * r_weight1
             r_cam1 = torch.sum(r_cam1, dim=(1), keepdim=True)
             return r_cam1, z
 

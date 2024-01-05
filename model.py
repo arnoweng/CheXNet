@@ -14,7 +14,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from read_data import ChestXrayDataSet
-from sklearn.metrics import roc_auc_score
+# from sklearn.metrics import roc_auc_score
 
 from modules.densenet import densenet121
 
@@ -33,13 +33,42 @@ def main():
     cudnn.benchmark = True
 
     # initialize and load the model
-    model = DenseNet121(N_CLASSES).cuda()
-    model = torch.nn.DataParallel(model).cuda()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = DenseNet121(N_CLASSES)
+    # model = torch.nn.DataParallel(model)
+    if device == 'cuda':
+        model = model.cuda()
+    
 
     if os.path.isfile(CKPT_PATH):
         print("=> loading checkpoint")
-        checkpoint = torch.load(CKPT_PATH)
-        model.load_state_dict(checkpoint['state_dict'])
+        checkpoint = torch.load(CKPT_PATH, map_location=device)
+        state_dicts = {}
+        for old_key in checkpoint['state_dict']:
+
+            # remove the module. at the begining 
+            old_key = old_key.split('module.')[-1]
+            old = None
+            new = None
+
+            if 'conv.1' in old_key:
+                old, new = 'conv.1', 'conv1'
+            elif 'conv.2' in old_key:
+                old, new = 'conv.2', 'conv2'
+            elif 'norm.1' in old_key:
+                old, new = 'norm.1', 'norm1'
+            elif 'norm.2' in old_key:
+                old, new = 'norm.2', 'norm2'
+
+            if old == None or new == None:
+                state_dicts[old_key] = checkpoint['state_dict']['module.'+old_key]
+            else:
+                parts = old_key.split(old)
+                new_key = parts[0] + new + parts[-1]        
+                state_dicts[new_key] = checkpoint['state_dict']['module.'+old_key]
+            
+                
+        model.load_state_dict(state_dicts)
         print("=> loaded checkpoint")
     else:
         print("=> no checkpoint found")
@@ -62,9 +91,11 @@ def main():
 
     # initialize the ground truth and output tensor
     gt = torch.FloatTensor()
-    gt = gt.cuda()
     pred = torch.FloatTensor()
-    pred = pred.cuda()
+
+    if device == 'cuda':
+        gt = gt.cuda()
+        pred = pred.cuda()
 
     # switch to evaluate mode
     model.eval()
@@ -78,32 +109,32 @@ def main():
         output_mean = output.view(bs, n_crops, -1).mean(1)
         pred = torch.cat((pred, output_mean.data), 0)
 
-    AUROCs = compute_AUCs(gt, pred)
-    AUROC_avg = np.array(AUROCs).mean()
-    print('The average AUROC is {AUROC_avg:.3f}'.format(AUROC_avg=AUROC_avg))
-    for i in range(N_CLASSES):
-        print('The AUROC of {} is {}'.format(CLASS_NAMES[i], AUROCs[i]))
+    # AUROCs = compute_AUCs(gt, pred)
+    # AUROC_avg = np.array(AUROCs).mean()
+    # print('The average AUROC is {AUROC_avg:.3f}'.format(AUROC_avg=AUROC_avg))
+    # for i in range(N_CLASSES):
+    #     print('The AUROC of {} is {}'.format(CLASS_NAMES[i], AUROCs[i]))
 
 
-def compute_AUCs(gt, pred):
-    """Computes Area Under the Curve (AUC) from prediction scores.
+# def compute_AUCs(gt, pred):
+#     """Computes Area Under the Curve (AUC) from prediction scores.
 
-    Args:
-        gt: Pytorch tensor on GPU, shape = [n_samples, n_classes]
-          true binary labels.
-        pred: Pytorch tensor on GPU, shape = [n_samples, n_classes]
-          can either be probability estimates of the positive class,
-          confidence values, or binary decisions.
+#     Args:
+#         gt: Pytorch tensor on GPU, shape = [n_samples, n_classes]
+#           true binary labels.
+#         pred: Pytorch tensor on GPU, shape = [n_samples, n_classes]
+#           can either be probability estimates of the positive class,
+#           confidence values, or binary decisions.
 
-    Returns:
-        List of AUROCs of all classes.
-    """
-    AUROCs = []
-    gt_np = gt.cpu().numpy()
-    pred_np = pred.cpu().numpy()
-    for i in range(N_CLASSES):
-        AUROCs.append(roc_auc_score(gt_np[:, i], pred_np[:, i]))
-    return AUROCs
+#     Returns:
+#         List of AUROCs of all classes.
+#     """
+#     AUROCs = []
+#     gt_np = gt.cpu().numpy()
+#     pred_np = pred.cpu().numpy()
+#     for i in range(N_CLASSES):
+#         AUROCs.append(roc_auc_score(gt_np[:, i], pred_np[:, i]))
+#     return AUROCs
 
 
 class DenseNet121(nn.Module):
