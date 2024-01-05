@@ -162,6 +162,7 @@ class DenseNet(nn.Module):
         self.block_config = block_config
         self.bn_size = bn_size
         self.drop_rate = drop_rate
+        assert(self.drop_rate == 0)
         self.num_classes = num_classes
         self.memory_efficient = memory_efficient
 
