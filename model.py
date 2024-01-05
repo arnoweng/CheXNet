@@ -27,6 +27,32 @@ DATA_DIR = './ChestX-ray14/images'
 TEST_IMAGE_LIST = './ChestX-ray14/labels/test_list.txt'
 BATCH_SIZE = 64
 
+def map_state_dict(checkpoint):
+    state_dicts = {}
+    for old_key in checkpoint['state_dict']:
+
+        # remove the module. at the begining 
+        old_key = old_key.split('module.')[-1]
+        old = None
+        new = None
+
+        if 'conv.1' in old_key:
+            old, new = 'conv.1', 'conv1'
+        elif 'conv.2' in old_key:
+            old, new = 'conv.2', 'conv2'
+        elif 'norm.1' in old_key:
+            old, new = 'norm.1', 'norm1'
+        elif 'norm.2' in old_key:
+            old, new = 'norm.2', 'norm2'
+
+        if old == None or new == None:
+            state_dicts[old_key] = checkpoint['state_dict']['module.'+old_key]
+        else:
+            parts = old_key.split(old)
+            new_key = parts[0] + new + parts[-1]        
+            state_dicts[new_key] = checkpoint['state_dict']['module.'+old_key]
+    
+    return state_dicts
 
 def main():
 
@@ -43,31 +69,10 @@ def main():
     if os.path.isfile(CKPT_PATH):
         print("=> loading checkpoint")
         checkpoint = torch.load(CKPT_PATH, map_location=device)
-        state_dicts = {}
-        for old_key in checkpoint['state_dict']:
 
-            # remove the module. at the begining 
-            old_key = old_key.split('module.')[-1]
-            old = None
-            new = None
+        # match the format of the checkpoint dictionary to the state dict of our design
+        state_dicts = map_state_dict(checkpoint) 
 
-            if 'conv.1' in old_key:
-                old, new = 'conv.1', 'conv1'
-            elif 'conv.2' in old_key:
-                old, new = 'conv.2', 'conv2'
-            elif 'norm.1' in old_key:
-                old, new = 'norm.1', 'norm1'
-            elif 'norm.2' in old_key:
-                old, new = 'norm.2', 'norm2'
-
-            if old == None or new == None:
-                state_dicts[old_key] = checkpoint['state_dict']['module.'+old_key]
-            else:
-                parts = old_key.split(old)
-                new_key = parts[0] + new + parts[-1]        
-                state_dicts[new_key] = checkpoint['state_dict']['module.'+old_key]
-            
-                
         model.load_state_dict(state_dicts)
         print("=> loaded checkpoint")
     else:
